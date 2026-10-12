@@ -17,14 +17,20 @@ export function parseLogLine(line: string): ParsedLogLine {
     throw new Error("Invalid log line format");
   }
 
-  const [, timestamp, level, method, endpoint, statusCode, requestId] = match;
+  const [, timestamp, level, method, endpoint, statusCodeText, requestId] =
+    match;
+
+  const statusCode = Number(statusCodeText);
+  if (statusCode < 100 || statusCode > 599) {
+    throw new Error("Invalid HTTP status code");
+  }
 
   return {
     timestamp: timestamp!,
     level: level!,
     method: method!,
     endpoint: endpoint!,
-    statusCode: Number(statusCode),
+    statusCode,
     requestId: requestId!,
   };
 }

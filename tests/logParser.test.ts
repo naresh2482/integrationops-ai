@@ -20,4 +20,13 @@ describe("Log Parser", () => {
       requestId: "req-123",
     });
   });
+
+  it("should throw when the HTTP status code is invalid", () => {
+    // Arrange
+    const line =
+      "2026-10-12T10:15:00Z ERROR POST /api/results 999 requestId=req-123";
+
+    // Act & Assert
+    expect(() => parseLogLine(line)).toThrow();
+  });
 });
