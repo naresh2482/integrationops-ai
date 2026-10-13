@@ -27,6 +27,31 @@ describe("Log Parser", () => {
       "2026-10-12T10:15:00Z ERROR POST /api/results 999 requestId=req-123";
 
     // Act & Assert
-    expect(() => parseLogLine(line)).toThrow();
+    expect(() => parseLogLine(line)).toThrow("Invalid HTTP status code");
   });
+
+  it.each(["099", "600"])(
+    "should throw for out-of-range HTTP status code %s",
+    (code) => {
+      // Arrange
+      const line = `2026-10-12T10:15:00Z ERROR POST /api/results ${code} requestId=req-123`;
+
+      // Act & Assert
+      expect(() => parseLogLine(line)).toThrow("Invalid HTTP status code");
+    },
+  );
+
+  it.each([100, 599])(
+    "should accept boundary HTTP status code %i",
+    (code) => {
+      // Arrange
+      const line = `2026-10-12T10:15:00Z ERROR POST /api/results ${code} requestId=req-123`;
+
+      // Act
+      const result = parseLogLine(line);
+
+      // Assert
+      expect(result.statusCode).toBe(code);
+    },
+  );
 });
