@@ -110,6 +110,46 @@ Limitations:
 - Single fixed log only; no file input, batching, or concurrency control
 - The script declares a minimal `process` type locally because `tsconfig.json` sets `types: []`
 
+## REST API (MVP)
+
+Status: Implementation, tests, and real integration check complete
+
+Files:
+- `src/analysisWorkflow.ts`: application logic (`analyzeLogs`), no HTTP concerns
+- `src/httpServer.ts`: routing, body limits, status codes (`createHttpServer`, dependency-injected analyzer)
+- `src/server.ts`: entry point; wires `LogAnalysisService` + `OllamaClient`, binds `127.0.0.1`, `PORT` env (default 3000)
+- `package.json`: added `npm start`; `tsconfig.json`: `types` changed from `[]` to `["node"]` so `node:http` and `process` are typed
+
+Endpoints: `GET /health`, `POST /api/analyze` (see `README.md` for examples)
+
+Behavior:
+- Limits: 64 KB body (413), 100 non-blank lines (422), at most 3 entries analyzed sequentially; the rest are reported as `skipped`
+- Per-line errors carry line numbers and generic messages only; raw lines are never echoed or logged
+- Responses contain only allowlisted fields (timestamp, level, method, statusCode); endpoints and request IDs are omitted
+- Ollama failure: generic `failed` status, remaining entries skipped, HTTP 502 if nothing was analyzed
+- Parsed lines whose level/method/timestamp fail diagnostic validation are reported as "Invalid diagnostic data"
+- No CORS headers; loopback bind only; server writes only a startup line to the console
+
+Final review changes:
+- `POST /api/analyze` requires `Content-Type: application/json` (case-insensitive, parameters allowed); anything else returns 415 before the body is read or any analysis runs
+- Oversized bodies are rejected as soon as the limit is crossed: buffered chunks are released, the request stream is paused (no further reading), and the connection is destroyed after a 1 s grace period so the client can read the 413. A test streams chunked data toward 200 MB and asserts a 413 arrives and the server stops consuming far below that
+- Added line-number mapping tests: leading blank lines, CRLF endings, whitespace-only lines, malformed first line, trailing blanks, and parseable-but-invalid-diagnostic lines interleaved with valid ones; plus a check that each explanation stays attached to the right line
+- `Connection: close` is deliberately not set on 413/415: Node then ends the socket immediately, and the resulting reset made streaming clients lose the response (observed as a flaky test)
+
+Tests: 101 passing (45 new across workflow and HTTP); typecheck passing; the full suite was run repeatedly (15 runs, 0 failures) to check the streaming test for flakiness
+
+Real integration check (2026-10-14): server started with `PORT=3100`, a synthetic 401 line plus one malformed line posted with curl. Result: HTTP 200, `status: completed`, 1 parsed, 1 rejected (line 2), a real qwen3:14b explanation (about 17 s), and no endpoint, request ID, or API key in the response. An oversized body returned 413 and invalid JSON returned 400. Server log contained only the startup line.
+
+Limitations:
+- No authentication, rate limiting, or concurrency control; intended for local use only
+- Request handling is unbounded in time: up to 3 sequential Ollama calls, each with a 120 s timeout
+- Explanations are generic because only four fields are sent; there is no cross-entry correlation
+- The model output is returned as plain text and is unvalidated; frontends must render it as text, not HTML
+- After an oversized-body 413 the connection is closed about 1 s later, so a client that reuses that connection immediately may see a reset; clients that stop writing after the response are unaffected
+- `OllamaClient` URL, model, and timeout are still hardcoded
+- Timestamp validation is not calendar-strict (`2026-02-31` passes)
+- No graceful shutdown handling; no request timeouts for slow clients
+
 ## Current Limitations
 - Supports one fixed log format
 - Only the HTTP status code is validated; timestamp, level, method, endpoint, and request ID accept any non-whitespace value
@@ -142,7 +182,7 @@ These lines are currently accepted because the parser has no semantic validation
 - Level before timestamp: `ERROR 2026-10-12T10:15:00Z POST /api/results 401 requestId=req-123`
 
 ## Next Task
-Make the pipeline usable beyond the fixed demo: process a small log file with `processLogLines`, analyze a bounded number of entries sequentially with `LogAnalysisService`, and expose it through a minimal entry point (RED: write failing tests first). Also make `OllamaClient` URL, model, and timeout configurable.
+Build the React frontend that submits logs to `POST /api/analyze` and renders the summary, per-line errors, and explanations as plain text. Prerequisite decision: how the frontend reaches the API without enabling open CORS (dev proxy vs. an explicit origin allowlist).
 
 ## Backlog
 - Close the redaction gaps listed under "Redaction Limitations" and wire `redactSensitiveData` into the processing pipeline (defense-in-depth; the diagnostic payload already excludes raw messages, endpoint, and request ID)

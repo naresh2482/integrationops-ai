@@ -3,9 +3,6 @@ import { createDiagnosticPayload } from "../src/diagnosticPayload.js";
 import { LogAnalysisService } from "../src/logAnalysisService.js";
 import { OllamaClient } from "../src/ollamaClient.js";
 
-// tsconfig sets `types: []`, so Node globals are not typed; declare only what is used.
-declare const process: { exitCode?: number };
-
 // Fixed synthetic log. The endpoint carries a fake key to show it never
 // reaches the diagnostic payload or the prompt. The raw line is not printed.
 const SYNTHETIC_LOG =
