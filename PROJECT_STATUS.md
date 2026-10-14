@@ -1,7 +1,7 @@
 # IntegrationOps AI — Project Status
 
 ## Current Phase
-Day 1 — Log Parsing
+Day 2 — Secure Diagnostic Payload
 
 ## Completed
 - [x] Initialize Node.js and TypeScript project
@@ -28,6 +28,28 @@ Day 1 — Log Parsing
   - `api_key=<value>` in a query string (after `?` or `&`) → `api_key=[REDACTED]` (value ends at `&`, `#`, or whitespace)
   - Matching is case-insensitive and replaces every occurrence in the input
   - A bare `Authorization: Bearer` with no token does not consume the following line
+
+## Day 2 — Secure Diagnostic Payload
+
+Status: Implementation and tests complete (`createDiagnosticPayload` in `src/diagnosticPayload.ts`, tests in `tests/diagnosticPayload.test.ts`)
+
+Implemented:
+- Allowlisted diagnostic fields (`timestamp`, `level`, `method`, `statusCode`)
+- Runtime type validation
+- Timestamp format and parseability checks
+- Allowed log levels (`DEBUG`, `INFO`, `WARN`, `ERROR`, `FATAL`) and HTTP methods (`GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `HEAD`, `OPTIONS`)
+- HTTP status code validation (integer, 100–599)
+- Rejection of malformed diagnostic inputs with a generic "Invalid diagnostic payload" error
+
+Verification:
+- 31 tests passing
+- TypeScript typecheck passing
+
+Security notes:
+- Raw log messages are excluded from the AI payload.
+- Endpoint and request ID are excluded.
+- Regex redaction remains defense-in-depth.
+- Timestamp validation is not yet strict calendar validation.
 
 ## Current Limitations
 - Supports one fixed log format
@@ -61,9 +83,12 @@ These lines are currently accepted because the parser has no semantic validation
 - Level before timestamp: `ERROR 2026-10-12T10:15:00Z POST /api/results 401 requestId=req-123`
 
 ## Next Task
-Close the highest-risk redaction gaps before any Ollama integration (RED: write failing tests first): quoted password values, `Authorization: Basic`, `password:` / `token=` / `apikey=` variants, and JSON `"password"` fields. Then apply redaction in the processing pipeline so nothing reaches an LLM unredacted.
+Integrate local Ollama (Qwen3:14b) for AI-powered troubleshooting, sending only the allowlisted `SafeDiagnosticEntry` payload (RED: write failing tests first).
 
 ## Backlog
+- Close the redaction gaps listed under "Redaction Limitations" and wire `redactSensitiveData` into the processing pipeline (defense-in-depth; the diagnostic payload already excludes raw messages, endpoint, and request ID)
+- Apply the diagnostic payload's level/method/timestamp validation to `parseLogLine`, or reuse it there (the parser itself still accepts any token for these fields)
+- Strict calendar validation for timestamps (e.g., `2026-02-31T00:00:00Z` currently passes because `Date.parse` rolls it over to March 3)
 - Semantic validation for timestamp, level, method, and endpoint formats, so the deferred scenarios above are rejected with "Invalid log line format"
 
 ## Working Principle
