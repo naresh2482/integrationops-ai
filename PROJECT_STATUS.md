@@ -51,6 +51,65 @@ Security notes:
 - Regex redaction remains defense-in-depth.
 - Timestamp validation is not yet strict calendar validation.
 
+## Log Analysis Service
+
+Status: Implementation and tests complete (`LogAnalysisService` in `src/logAnalysisService.ts`, tests in `tests/logAnalysisService.test.ts`)
+
+Implemented:
+- `LogAnalysisService.analyze(log)` validates input with `createDiagnosticPayload()` before any AI request
+- Prompt is built only from the validated `SafeDiagnosticEntry` (timestamp, level, method, status code)
+- AI client is injected through a minimal `TextGenerator` interface (`generate(prompt): Promise<string>`), satisfied by `OllamaClient`
+- AI client errors propagate unchanged
+- Empty, whitespace-only, or non-string AI responses throw "Invalid analysis response"
+- Returned explanation is trimmed
+
+Tests (17 new):
+- Successful analysis and prompt construction from validated fields
+- Exclusion of endpoint, request ID, raw message, API key, password, and bearer token from the prompt
+- Seven invalid-input cases reject with "Invalid diagnostic payload" and never call the AI client
+- Validation errors do not echo input values
+- AI client failure propagation
+- Empty, whitespace-only, and non-string AI responses
+- Real `OllamaClient` (with mocked `fetch`) works as the injected client
+
+Security notes:
+- The prompt never includes raw log messages, endpoint, or request ID; they are dropped by the allowlist, not by regex redaction.
+- Prompt text is a fixed template plus validated enum-like values, so free-form untrusted text cannot reach the model.
+- Errors from this service are generic and contain no input content.
+
+Limitations:
+- Timestamp validation is not strict calendar validation.
+- The AI response is returned as plain text and is not validated for content; the model could still emit unhelpful or incorrect advice.
+- Only status code, level, method, and timestamp are analyzed, so explanations are necessarily generic.
+- Not yet wired into `src/index.ts` or any entry point; `OllamaClient` uses a hardcoded URL, model, and timeout.
+
+## First End-to-End AI Diagnosis
+
+Status: Verified manually against local Ollama (`qwen3:14b`) on 2026-10-14
+
+Script: `scripts/diagnose401.ts` (run with `npx tsx scripts/diagnose401.ts`)
+
+Flow:
+- Parses one fixed synthetic HTTP 401 log with `parseLogLine`
+- Prints the validated payload from `createDiagnosticPayload`: `{ timestamp, level, method, statusCode }`
+- Sends only that payload through `LogAnalysisService` and the real `OllamaClient`
+- Prints the AI explanation
+- On failure, prints a generic message and sets exit code 1
+
+Outcome:
+- Exit code 0; about 18 seconds end to end
+- The response identified 401 as an authentication failure and listed likely causes (missing or invalid `Authorization` header, expired token, wrong credentials, auth scheme mismatch) and generic next steps (verify credentials, check the header, review API docs, reproduce with curl, check proxies, enable debug logging)
+- The synthetic log's endpoint carried a fake `api_key`; it was not printed and is not in the payload or prompt
+- 56 tests passing; typecheck passing
+
+Limitations:
+- Manual script only; not part of `npm test` because it depends on a running local model
+- The Ollama-unavailable path was verified at the client level (`OllamaClient` rejects with "fetch failed" when the port is closed) but the script itself was not run against a stopped Ollama
+- Explanation is generic because only status code, level, method, and timestamp are sent; it cannot reference the endpoint or error body
+- The model response is nondeterministic and its quality is not validated
+- Single fixed log only; no file input, batching, or concurrency control
+- The script declares a minimal `process` type locally because `tsconfig.json` sets `types: []`
+
 ## Current Limitations
 - Supports one fixed log format
 - Only the HTTP status code is validated; timestamp, level, method, endpoint, and request ID accept any non-whitespace value
@@ -83,7 +142,7 @@ These lines are currently accepted because the parser has no semantic validation
 - Level before timestamp: `ERROR 2026-10-12T10:15:00Z POST /api/results 401 requestId=req-123`
 
 ## Next Task
-Integrate local Ollama (Qwen3:14b) for AI-powered troubleshooting, sending only the allowlisted `SafeDiagnosticEntry` payload (RED: write failing tests first).
+Make the pipeline usable beyond the fixed demo: process a small log file with `processLogLines`, analyze a bounded number of entries sequentially with `LogAnalysisService`, and expose it through a minimal entry point (RED: write failing tests first). Also make `OllamaClient` URL, model, and timeout configurable.
 
 ## Backlog
 - Close the redaction gaps listed under "Redaction Limitations" and wire `redactSensitiveData` into the processing pipeline (defense-in-depth; the diagnostic payload already excludes raw messages, endpoint, and request ID)
