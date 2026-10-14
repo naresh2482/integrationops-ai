@@ -1,22 +1,14 @@
 {
-  "name": "integrationops-ai",
-  "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "name": "integrationops-ai-workspace",
+  "private": true,
+  "description": "Root convenience scripts; the backend lives in backend/ and the frontend in frontend/",
   "scripts": {
-    "test": "vitest run",
-    "dev": "tsx src/index.ts",
-    "start": "tsx src/server.ts",
-    "typecheck": "tsc --noEmit"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "type": "module",
-  "devDependencies": {
-    "@types/node": "^26.6.5",
-    "tsx": "^4.23.15",
-    "typescript": "^7.0.2",
-    "vitest": "^5.0.4"
+    "start": "npm --prefix backend start",
+    "test": "npm --prefix backend test -- --run",
+    "typecheck": "npm --prefix backend run typecheck",
+    "dev:frontend": "npm --prefix frontend run dev",
+    "test:frontend": "npm --prefix frontend test",
+    "typecheck:frontend": "npm --prefix frontend run typecheck",
+    "build:frontend": "npm --prefix frontend run build"
   }
 }

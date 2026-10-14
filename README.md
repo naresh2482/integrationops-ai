@@ -16,6 +16,7 @@ The application is being developed incrementally using Test-Driven Development (
 - Validate a minimal diagnostic payload (timestamp, level, method, status code) before any AI request
 - Local AI troubleshooting through Ollama (`qwen3:14b`); endpoints, request IDs, and raw messages are never sent to the model
 - REST API for submitting logs and receiving explanations
+- React dashboard: paste or upload logs, see parsed and rejected counts, per-entry AI explanations, and parsing errors
 - Unit testing with Vitest
 
 ## Technology Stack
@@ -26,8 +27,7 @@ The application is being developed incrementally using Test-Driven Development (
 - Vitest
 - Ollama with Qwen3:14b for local AI analysis
 
-**Planned**
-- React for the user interface
+- React 19, Vite, and Vitest with React Testing Library (frontend)
 
 ## Getting Started
 
@@ -36,10 +36,24 @@ The application is being developed incrementally using Test-Driven Development (
 - Node.js
 - npm
 
+### Repository Structure
+
+```text
+integrationops-ai/
+├── backend/            Node.js + TypeScript API (src/, tests/, scripts/, package.json, tsconfig.json)
+├── frontend/           React + TypeScript + Vite UI (src/, vite.config.ts, package.json)
+├── docs/               Project documentation
+├── package.json        Root convenience scripts that delegate to backend/
+├── README.md
+├── PROJECT_STATUS.md
+└── CLAUDE.md
+```
+
 ### Installation
 
 ```bash
-npm install
+cd backend && npm install
+cd ../frontend && npm install
 ```
 
 ### Run the API
@@ -47,11 +61,47 @@ npm install
 Requires Ollama running locally with the model pulled (`ollama pull qwen3:14b`).
 
 ```bash
+# from the repository root
 npm start            # listens on http://127.0.0.1:3000
 PORT=3100 npm start  # custom port
+
+# or from backend/
+cd backend && npm start
 ```
 
 The server binds to `127.0.0.1` only and sends no CORS headers.
+
+### Run the Web UI
+
+Start the backend first, then the frontend dev server:
+
+```bash
+# terminal 1 (repository root)
+npm start                 # API on http://127.0.0.1:3000
+
+# terminal 2
+npm run dev:frontend      # UI on http://127.0.0.1:5173
+```
+
+Open http://127.0.0.1:5173. The Vite dev server proxies `/api` and `/health` to
+`http://127.0.0.1:3000`, so the browser only talks to one origin and the backend needs
+no CORS headers. If the backend uses a different port, update `BACKEND` in
+`frontend/vite.config.ts`.
+
+Frontend checks:
+
+```bash
+npm run test:frontend       # Vitest + React Testing Library
+npm run typecheck:frontend
+npm run build:frontend      # typecheck + production build into frontend/dist
+```
+
+UI behavior and safeguards:
+- Input limits mirror the backend: 64 KB request body and 100 non-blank lines (Analyze is disabled beyond them); uploaded files must be `.log` or `.txt` and at most 64 KB
+- At most 3 valid entries per request receive AI analysis; the rest are shown as not analyzed
+- AI explanations are rendered as sanitized Markdown (raw HTML, images, and `javascript:`/`data:` links are not rendered), shown in collapsible cards (first one expanded), and labelled as hypotheses, not verified root causes
+- Logs are held only in component state: nothing is written to browser storage or the console
+- States handled: empty, loading, success, partial, validation error, backend unavailable, Ollama failure
 
 ## REST API
 
@@ -116,19 +166,21 @@ the remaining entries are skipped.
 ### Run the Local Diagnosis Script
 
 ```bash
-npx tsx scripts/diagnose401.ts
+cd backend && npx tsx scripts/diagnose401.ts
 ```
 
 ### Run Tests
 
 ```bash
-npm test
+npm test             # from the root (runs backend tests once)
+cd backend && npm test -- --run
 ```
 
 ### Type Checking
 
 ```bash
-npm run typecheck
+npm run typecheck    # from the root
+cd backend && npm run typecheck
 ```
 
 ## Supported Log Format

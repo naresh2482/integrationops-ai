@@ -29,6 +29,68 @@ Day 2 — Secure Diagnostic Payload
   - Matching is case-insensitive and replaces every occurrence in the input
   - A bare `Authorization: Bearer` with no token does not consume the following line
 
+## Frontend UI Polish
+
+Status: Complete (uncommitted, awaiting review). Backend and API contract unchanged.
+
+- AI explanations render as Markdown via `react-markdown` (`frontend/src/components/Markdown.tsx`): headings, bold, lists, inline code, and fenced code blocks are preserved, with spacing and typography styles in `styles.css`
+- Safety: raw HTML is not enabled (no `rehype-raw`), so tags such as `<img>`, `<script>`, `<iframe>` appear as inert text; the default URL transform drops `javascript:`, `data:`, and `vbscript:` links (the link text is kept without an `href`); images are disallowed so model output cannot trigger remote requests; safe links open with `target="_blank"` and `rel="noopener noreferrer nofollow"`
+- Each diagnostic entry with an explanation has an accessible toggle (`<button aria-expanded aria-controls>`, keyboard operable); the first entry is expanded by default and the rest are collapsed. Failed and skipped entries have no body to collapse, so their notes stay visible
+- New tests (6): Markdown structure, raw HTML, unsafe link protocols and images, safe link attributes, default expand/collapse state, mouse and keyboard toggling. The earlier plain-text test was replaced by these
+- Verification: frontend 31 tests passing, typecheck passing, production build succeeding (348 kB JS, 107 kB gzip, up from 229 kB / 72 kB because of `react-markdown`); backend 101 tests passing and unchanged
+- Limitations: no syntax highlighting; tables and task lists are not specially styled; the first-card default means a long first explanation pushes later cards down; not re-checked in a real browser by me (the manual browser pass is the user's)
+- A "plain text" statement elsewhere in this document and in `README.md` is superseded by the Markdown rendering described here
+
+## React Frontend (MVP)
+
+Status: Implementation, tests, and API-level integration check complete (uncommitted, awaiting review)
+
+Structure (`frontend/`): React 19 + TypeScript + Vite; Vitest + React Testing Library + jsdom
+- `src/App.tsx`: state machine (idle, loading, result, rejected, unavailable), file upload, clear
+- `src/api.ts`: response types mirroring `backend/src/analysisWorkflow.ts`; `analyzeLogs` fetches `POST /api/analyze` and maps outcomes to `result` / `rejected` / `unavailable`
+- `src/limits.ts`: 64 KB, 100-line, and 3-entry constants and input measurement (non-blank lines, JSON body bytes, as the backend counts them)
+- `src/components/LogInput.tsx`, `src/components/ResultsPanel.tsx`, `src/styles.css` (light/dark, responsive)
+- `vite.config.ts`: proxies `/api` and `/health` to `http://127.0.0.1:3000`; dev server bound to `127.0.0.1:5173`
+- Root `package.json` gained `dev:frontend`, `test:frontend`, `typecheck:frontend`, `build:frontend`
+
+Behavior:
+- Analyze is disabled for blank input or input beyond 64 KB / 100 lines, with inline feedback; files must be `.log`/`.txt` and at most 64 KB
+- Backend contract unchanged: 200 (completed/partial), 422 and 502 bodies still carry the full result and are rendered, 400/413/415/422 error bodies are shown as "Request rejected", and network failures or non-JSON proxy errors (backend down) show "Backend unavailable"
+- Results show status banner, parsed/rejected/analyzed/not-analyzed counts, entries with line number, HTTP status, method, level, timestamp, per-entry explanation or failed/skipped note, and parsing errors with line numbers
+- AI text is rendered as a React text node (`white-space: pre-wrap`); a persistent notice states output is a hypothesis, and that only timestamp, level, method, and status code are sent to the model
+- No `localStorage`/`sessionStorage` use and no `console` output; no new backend code or response shape changes
+
+Verification (2026-10-14):
+- Frontend: 25 tests passing, typecheck passing, production build succeeding (about 229 kB JS, 72 kB gzip)
+- Backend: 101 tests passing, typecheck passing (unchanged)
+- Both servers started locally; through the Vite proxy `GET /health` returned 200 and `POST /api/analyze` with a synthetic 401 line plus a malformed line returned 200, `completed`, 1 parsed, 1 rejected, and a real qwen3:14b explanation (about 15 s). With the backend stopped, the proxy returned 502 `text/plain`, which the client maps to "Backend unavailable"
+- The backend sends no CORS headers (checked with a cross-origin `Origin` request)
+
+Not verified:
+- No real browser session was driven: the UI was exercised only through jsdom component tests and the proxy-level API call above, not by clicking in a browser. Visual layout, file-picker behavior, and CSS were not visually checked
+
+Limitations:
+- Tests for the frontend were written after the implementation, not RED-first
+- Dev proxy only; there is no production serving story, and `BACKEND` is a constant in `vite.config.ts`
+- No request cancellation, progress per entry, or history; one request at a time (a pending request is ignored if the input is cleared)
+- Explanations are plain text, so model markdown (bold, lists) is shown literally
+- The 64 KB upload limit is checked client-side as file size; the JSON body size is what the backend enforces
+- Accessibility was reasoned about (labels, roles, live regions) but not audited with a tool
+
+## Repository Restructuring
+
+Status: Complete (uncommitted, awaiting review)
+
+- Backend moved into `backend/` with `git mv` (history preserved as renames): `src/`, `tests/`, `scripts/`, `package.json`, `package-lock.json`, `tsconfig.json`
+- `node_modules/` relocated to `backend/node_modules/` (untracked); run `npm install` in `backend/` on a fresh clone
+- No source, test, or config contents changed; relative imports and `tsconfig.json` needed no edits
+- Added a root `package.json` with `start`, `test`, and `typecheck` scripts that delegate to `backend/` (no dependencies, no workspace tooling)
+- Added `frontend/.gitkeep` as a placeholder; React is not implemented yet
+- `README.md`, `PROJECT_STATUS.md`, `CLAUDE.md`, `docs/`, and `.gitignore` stay at the root
+- Verified: 101 tests passing and typecheck passing from `backend/` and via root scripts; the API started from the root with `npm start` and `GET /health` returned 200
+
+Note: file paths elsewhere in this document (e.g., `src/logParser.ts`) are relative to `backend/`.
+
 ## Day 2 — Secure Diagnostic Payload
 
 Status: Implementation and tests complete (`createDiagnosticPayload` in `src/diagnosticPayload.ts`, tests in `tests/diagnosticPayload.test.ts`)
@@ -182,7 +244,7 @@ These lines are currently accepted because the parser has no semantic validation
 - Level before timestamp: `ERROR 2026-10-12T10:15:00Z POST /api/results 401 requestId=req-123`
 
 ## Next Task
-Build the React frontend that submits logs to `POST /api/analyze` and renders the summary, per-line errors, and explanations as plain text. Prerequisite decision: how the frontend reaches the API without enabling open CORS (dev proxy vs. an explicit origin allowlist).
+Review and commit the restructuring and frontend; then do a manual browser pass (paste, upload, each error state) and decide the next MVP item (for example configurable `OllamaClient` settings or a production serving approach).
 
 ## Backlog
 - Close the redaction gaps listed under "Redaction Limitations" and wire `redactSensitiveData` into the processing pipeline (defense-in-depth; the diagnostic payload already excludes raw messages, endpoint, and request ID)
