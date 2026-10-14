@@ -54,4 +54,36 @@ describe("Log Parser", () => {
       expect(result.statusCode).toBe(code);
     },
   );
+
+  it.each([
+    ["empty line", ""],
+    ["whitespace-only line", "   "],
+    [
+      "missing requestId",
+      "2026-10-12T10:15:00Z ERROR POST /api/results 401",
+    ],
+    [
+      "requestId key without value",
+      "2026-10-12T10:15:00Z ERROR POST /api/results 401 requestId=",
+    ],
+    [
+      "missing status code",
+      "2026-10-12T10:15:00Z ERROR POST /api/results requestId=req-123",
+    ],
+    [
+      "missing endpoint",
+      "2026-10-12T10:15:00Z ERROR POST 401 requestId=req-123",
+    ],
+    [
+      "missing timestamp",
+      "ERROR POST /api/results 401 requestId=req-123",
+    ],
+    [
+      "requestId before status code",
+      "2026-10-12T10:15:00Z ERROR POST /api/results requestId=req-123 401",
+    ],
+  ])("should throw for malformed line: %s", (_name, line) => {
+    // Act & Assert
+    expect(() => parseLogLine(line)).toThrow("Invalid log line format");
+  });
 });
